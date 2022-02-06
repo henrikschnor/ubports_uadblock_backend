@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import functools
 import logging
 import os
@@ -65,7 +66,7 @@ class HostsRequestHandler(BaseHTTPRequestHandler):
             time_diff = int((time_end - time_start) * 1000)
             logging.debug(f'Blocklist generation took {time_diff} ms')
             self.wfile.write(block_list.encode())
-        except ConnectionResetError as err:
+        except (ConnectionResetError, BrokenPipeError) as err:
             logging.info(str(err))
     
     def log_message(self, format, *args):
@@ -81,13 +82,12 @@ def http_server_thread(thread_id, addr, sock, default_hosts, hosts_lists):
     httpd.server_bind = lambda self: None
     httpd.serve_forever()
 
-def start_http_server(default_hosts, hosts_lists):
-    logging.info('Starting http server...')
+def start_http_server(addr, port, default_hosts, hosts_lists):
+    logging.info(f'Starting http server on {addr}:{port}...')
     # Create a single socket
-    addr = ('', 8080)
     sock = socket.socket (socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(addr)
+    sock.bind((addr, port))
     sock.listen(HTTP_SERVER_QUEUE)
     # Start n-1 http handler threads
     for thread_idx in range(HTTP_SERVER_THREADS-1):
@@ -129,21 +129,27 @@ def combine_lists(hosts_lists, list_ids):
     return prefix + '\n0.0.0.0 '.join(sorted(domains)) + '\n'
 
 def main():
+    # Parse arguments
+    arg_parser = argparse.ArgumentParser(description='Serves hosts files for uAdBlock')
+    arg_parser.add_argument('-a', '--addr', action='store', default='0.0.0.0', help='Address to bind to')
+    arg_parser.add_argument('-p', '--port', action='store', default=8080, type=int, help='Port to bind to')
+    arg_parser.add_argument('-d', '--hosts-dir', action='store', default='lists', help='Directory containing the hosts lists')
+    args = arg_parser.parse_args()
+    # Configure logging
     logging.basicConfig(format='%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s', level=logging.DEBUG)
     logging.info('Starting...')
     # Load default hosts file (this will be prepended to generated lists)
     logging.info('Loading default hosts...')
     with open('hosts.01-ubuntu-default', 'r') as f:
         ubuntu_default_hosts = f.read()
-    
     # Block files should be placed in the lists directory
-    if not os.path.isdir('lists'):
-        logging.error('Lists directory doesn\'t exist, run update_lists.sh first')
+    if not os.path.isdir(args.hosts_dir):
+        logging.error(f'Lists directory "{args.hosts_dir}" doesn\'t exist. Path correct? Maybe run update_lists.sh first.')
         sys.exit(1)
     # Load all domains from the individual hosts files
     hosts_lists = {}
-    for hosts_file in sorted(os.listdir('lists')):
-        hosts_file_path = os.path.join('lists', hosts_file)
+    for hosts_file in sorted(os.listdir(args.hosts_dir)):
+        hosts_file_path = os.path.join(args.hosts_dir, hosts_file)
         # Each file name should start with <list_id>_
         file_match = re.match(r'([0-9]+)_', hosts_file)
         if os.path.isfile(hosts_file_path) and file_match:
@@ -152,7 +158,7 @@ def main():
             list_domains = load_hosts_domains(hosts_file_path)
             hosts_lists[list_id] = list_domains
     # Start the http server (blocks forever)
-    start_http_server(ubuntu_default_hosts, hosts_lists)
+    start_http_server(args.addr, args.port, ubuntu_default_hosts, hosts_lists)
 
 if __name__ == '__main__':
     main()

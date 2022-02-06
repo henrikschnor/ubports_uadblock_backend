@@ -13,3 +13,13 @@ Start the server:
 ```
 ./hosts_server.py
 ```
+
+## Command line flags
+
+The following optional command line flags are recognized by `hosts_server.py` (see also `./hosts_server.py --help`):
+
+| Flag | Description |
+| --- | --- |
+| `-a`, `--addr` | Address for the http server to bind to |
+| `-p`, `--port` | Port for the http server to listen on |
+| `-d`, `--hosts-dir` | Directory containing the hosts lists. Hosts files are expected to begin with `<list_id>_`. |
